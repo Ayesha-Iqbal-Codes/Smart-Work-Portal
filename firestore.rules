@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========== USERS COLLECTION ==========
+    match /users/{userId} {
+      // Allow all logged-in users to read all users (e.g., for dashboards)
+      allow read: if request.auth != null;
+
+      // Allow users to update their own profile
+      allow update: if request.auth != null && request.auth.uid == userId;
+
+      // Allow admin to update any user's role and assignment
+      allow update: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" &&
+        request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(['role', 'teamLeadId', 'teamName']);
+
+      // Allow only admin to create users
+      allow create: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    // ========== TASKS COLLECTION ==========
+    match /tasks/{taskId} {
+      // Everyone can read tasks
+      allow read: if request.auth != null;
+
+      // Intern can update their own task progress
+      allow update: if request.auth != null &&
+        request.resource.data.keys().hasOnly(['status', 'progress', 'completedAt']) &&
+        resource.data.assignedTo == request.auth.uid;
+
+      // Intern can’t delete/create tasks
+      allow delete, create: if false;
+
+      // Team lead can create tasks for interns assigned to them
+      allow create: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "teamLead" &&
+        request.resource.data.assignedTo != null &&
+        get(/databases/$(database)/documents/users/$(request.resource.data.assignedTo)).data.teamLeadId == request.auth.uid;
+
+      // Only the team lead of the intern can update/delete the task
+      allow update, delete: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(resource.data.assignedTo)).data.teamLeadId == request.auth.uid;
+    }
+  }
+}

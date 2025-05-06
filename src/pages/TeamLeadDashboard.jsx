@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { db, storage } from '../firebase';
+import { db } from '../firebase';
+import axios from 'axios';
 import {
   collection,
   query,
@@ -10,11 +11,13 @@ import {
   doc,
   getDoc,
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16 MB
 
 const TeamLeadDashboard = () => {
   const { userData, loading } = useAuth();
   const [interns, setInterns] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [file, setFile] = useState(null);
   const [teamName, setTeamName] = useState('');
   const [formData, setFormData] = useState({
@@ -23,6 +26,8 @@ const TeamLeadDashboard = () => {
     deadline: '',
     assignedTo: '',
   });
+  const [fileError, setFileError] = useState('');
+  const [uploadedFileURL, setUploadedFileURL] = useState(null);
 
   useEffect(() => {
     const fetchInterns = async () => {
@@ -45,13 +50,30 @@ const TeamLeadDashboard = () => {
   }, [userData, loading]);
 
   useEffect(() => {
+    const fetchTasks = async () => {
+      if (!userData || userData.role !== 'teamlead') return;
+
+      const tasksQuery = query(
+        collection(db, 'tasks'),
+        where('createdBy', '==', userData.uid)
+      );
+      const taskSnap = await getDocs(tasksQuery);
+      const taskList = taskSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setTasks(taskList);
+    };
+
+    if (!loading) fetchTasks();
+  }, [userData, loading]);
+
+  useEffect(() => {
     const fetchTeamName = async () => {
       if (userData?.role === 'teamlead') {
-        // First check if it's already available
         if (userData.teamName) {
           setTeamName(userData.teamName);
         } else {
-          // Fallback: fetch from Firestore
           const userRef = doc(db, 'users', userData.uid);
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
@@ -68,6 +90,19 @@ const TeamLeadDashboard = () => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const handleFileChange = e => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      if (selectedFile.size > MAX_FILE_SIZE) {
+        setFileError('File size exceeds 16 MB limit.');
+        setFile(null);
+      } else {
+        setFileError('');
+        setFile(selectedFile);
+      }
+    }
+  };
+
   const handleSubmit = async e => {
     e.preventDefault();
     if (!formData.title || !formData.description || !formData.deadline || !formData.assignedTo) {
@@ -79,9 +114,17 @@ const TeamLeadDashboard = () => {
       let fileURL = null;
 
       if (file) {
-        const fileRef = ref(storage, `taskFiles/${Date.now()}_${file.name}`);
-        await uploadBytes(fileRef, file);
-        fileURL = await getDownloadURL(fileRef);
+        const fileFormData = new FormData();
+        fileFormData.append('file', file);
+
+        const response = await axios.post('http://localhost:5000/upload', fileFormData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+
+        fileURL = response.data.fileURL;
+        setUploadedFileURL(fileURL);
       }
 
       await addDoc(collection(db, 'tasks'), {
@@ -166,9 +209,10 @@ const TeamLeadDashboard = () => {
               <label className="block text-teal-200 mb-2">Attach File</label>
               <input
                 type="file"
-                onChange={e => setFile(e.target.files[0])}
+                onChange={handleFileChange}
                 className="w-full text-teal-200 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-teal-800 file:bg-teal-300 file:hover:bg-teal-400 cursor-pointer"
               />
+              {fileError && <p className="text-red-500 text-sm">{fileError}</p>}
             </div>
             <button
               type="submit"
@@ -177,6 +221,44 @@ const TeamLeadDashboard = () => {
               Assign Task
             </button>
           </form>
+        </div>
+
+        {/* Uploaded File Link */}
+        {uploadedFileURL && (
+          <div className="mt-4 bg-white/10 border border-teal-400/20 p-4 rounded-lg text-teal-100">
+            <p className="mb-2 font-semibold">Uploaded File:</p>
+            <a
+              href={`http://localhost:5000${uploadedFileURL}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal-300 hover:underline break-all"
+            >
+              {uploadedFileURL}
+            </a>
+          </div>
+        )}
+
+        {/* Intern Tasks List */}
+        <div className="mt-10 bg-white/10 p-6 rounded-xl border border-teal-400/20 shadow-lg">
+          <h3 className="text-xl font-semibold text-teal-200 mb-4">Assigned Tasks</h3>
+          {interns.map(intern => (
+            <div key={intern.id} className="mb-6">
+              <h4 className="text-lg text-teal-100 font-semibold mb-2">{intern.name} ({intern.email})</h4>
+              <ul className="space-y-2 ml-4">
+                {tasks.filter(task => task.assignedTo === intern.id).length === 0 ? (
+                  <p className="text-teal-300">No tasks assigned.</p>
+                ) : (
+                  tasks
+                    .filter(task => task.assignedTo === intern.id)
+                    .map(task => (
+                      <li key={task.id} className="text-sm text-teal-200">
+                        • <span className="font-medium">{task.title}</span> - <span className={task.status === 'completed' ? 'text-green-400' : 'text-yellow-300'}>{task.status}</span>
+                      </li>
+                    ))
+                )}
+              </ul>
+            </div>
+          ))}
         </div>
       </div>
     </div>
