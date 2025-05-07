@@ -10,6 +10,7 @@ import {
   addDoc,
   doc,
   getDoc,
+  updateDoc,
 } from 'firebase/firestore';
 
 const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16 MB
@@ -143,6 +144,21 @@ const TeamLeadDashboard = () => {
     }
   };
 
+  const updateTaskStatus = async (taskId, newStatus) => {
+    try {
+      const taskRef = doc(db, 'tasks', taskId);
+      await updateDoc(taskRef, { status: newStatus });
+      alert(`Task ${newStatus}`);
+
+      const tasksQuery = query(collection(db, 'tasks'), where('createdBy', '==', userData.uid));
+      const taskSnap = await getDocs(tasksQuery);
+      const taskList = taskSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setTasks(taskList);
+    } catch (err) {
+      console.error('Error updating task status:', err);
+    }
+  };
+
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-cyan-900 to-teal-900">
@@ -153,7 +169,6 @@ const TeamLeadDashboard = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-900 to-teal-900 p-6 text-teal-50">
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
         <div className="mb-8">
           <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-200">
             Welcome, {userData?.name}
@@ -244,15 +259,42 @@ const TeamLeadDashboard = () => {
           {interns.map(intern => (
             <div key={intern.id} className="mb-6">
               <h4 className="text-lg text-teal-100 font-semibold mb-2">{intern.name} ({intern.email})</h4>
-              <ul className="space-y-2 ml-4">
+              <ul className="space-y-3 ml-4">
                 {tasks.filter(task => task.assignedTo === intern.id).length === 0 ? (
                   <p className="text-teal-300">No tasks assigned.</p>
                 ) : (
                   tasks
                     .filter(task => task.assignedTo === intern.id)
                     .map(task => (
-                      <li key={task.id} className="text-sm text-teal-200">
-                        • <span className="font-medium">{task.title}</span> - <span className={task.status === 'completed' ? 'text-green-400' : 'text-yellow-300'}>{task.status}</span>
+                      <li key={task.id} className="bg-white/10 p-4 rounded-lg border border-teal-400/20">
+                        <p className="text-teal-100 font-semibold">{task.title}</p>
+                        <p className="text-teal-300 text-sm">Status: <span className={task.status === 'approved' ? 'text-green-400' : task.status === 'rejected' ? 'text-red-400' : 'text-yellow-300'}>{task.status}</span></p>
+                        {task.githubURL && (
+                          <p className="mt-2 text-teal-200">
+                            GitHub: <a href={task.githubURL} target="_blank" rel="noopener noreferrer" className="text-teal-300 underline">{task.githubURL}</a>
+                          </p>
+                        )}
+                        {task.websiteURL && (
+                          <p className="text-teal-200">
+                            Website: <a href={task.websiteURL} target="_blank" rel="noopener noreferrer" className="text-teal-300 underline">{task.websiteURL}</a>
+                          </p>
+                        )}
+                        {task.status === 'pending' && (task.githubURL || task.websiteURL) && (
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              onClick={() => updateTaskStatus(task.id, 'approved')}
+                              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => updateTaskStatus(task.id, 'rejected')}
+                              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
                       </li>
                     ))
                 )}
