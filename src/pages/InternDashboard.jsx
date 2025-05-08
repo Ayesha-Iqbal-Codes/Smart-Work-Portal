@@ -26,10 +26,10 @@ const InternDashboard = () => {
     const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     setTasks(list);
 
-    // Pre-fill taskLinks for rejected tasks
+    // Pre-fill taskLinks for assigned, rejected, or pending tasks
     const links = {};
     list.forEach(task => {
-      if (task.status === 'rejected') {
+      if (['assigned', 'rejected', 'pending'].includes(task.status)) {
         links[task.id] = {
           websiteURL: task.websiteURL || '',
           githubURL: task.githubURL || '',
@@ -119,8 +119,8 @@ const InternDashboard = () => {
                   </span>
                 </p>
 
-                {/* Editable fields for assigned or rejected */}
-                {(task.status === 'assigned' || task.status === 'rejected') && (
+                {/* Editable fields for assigned, rejected, or pending */}
+                {(task.status === 'assigned' || task.status === 'rejected' || task.status === 'pending') && (
                   <div>
                     <input
                       type="url"
